@@ -14,10 +14,10 @@ class DataProcessor:
         self.cities: set = {"WAREHOUSE"}  # Initialize with warehouse
         self.city_to_idx: Dict[str, int] = {}
         self.truck_specifications: Dict[str, Dict] = {
-            '9.6': {'weight_capacity': 2.0, 'cost_per_km': 1, 'speed': 40},  # 2 tons = 2000 kg
-            '12.5': {'weight_capacity': 5.0, 'cost_per_km': 2, 'speed': 40}, # 5 tons = 5000 kg
-            '16.5': {'weight_capacity': 10.0, 'cost_per_km': 3, 'speed': 40}, # 10 tons = 10000 kg
-            '50.0': {'weight_capacity': 800.0, 'cost_per_km': 10, 'speed': 40} # 800 tons = 800000 kg
+            '9.6': {'weight_capacity': 2.0, 'cost_per_km': 1, 'speed': 40},  # 2 tons
+            '12.5': {'weight_capacity': 5.0, 'cost_per_km': 2, 'speed': 40}, # 5 tons
+            '16.5': {'weight_capacity': 10.0, 'cost_per_km': 3, 'speed': 40}, # 10 tons
+            '50.0': {'weight_capacity': 50.0, 'cost_per_km': 10, 'speed': 40} # 50 tons
         }
         self.warehouse_location = "WAREHOUSE"
         self.warehouse_lat = 0.0
@@ -94,28 +94,18 @@ class DataProcessor:
 
             self._validate_order_data()
             
-            # Convert weights from grams to kg and scale them down
-            self.order_data['Weight'] = self.order_data['Weight'] / 1000  # Convert grams to kg
-            
-            # Scale down weights to make the problem more manageable
-            # Find the maximum weight that would allow at least 2 orders per truck
-            max_truck_capacity = min(spec['weight_capacity'] for spec in self.truck_specifications.values())
-            max_single_order = max_truck_capacity / 2  # Allow at least 2 orders per truck
-            
-            # Scale down weights if they exceed the maximum
-            if self.order_data['Weight'].max() > max_single_order:
-                print(f"Scaling down weights to maximum of {max_single_order} kg")
-                self.order_data['Weight'] = self.order_data['Weight'].apply(lambda x: min(x, max_single_order))
+            # Convert weights from grams to tons (divide by 1000 to convert grams to kg, then by 1000 to convert kg to tons)
+            self.order_data['Weight'] = self.order_data['Weight'] / 1000000  # Convert grams to tons
             
             # Initialize time windows after loading data
             self._process_time_windows()
             
             print(f"Loaded {len(self.order_data)} orders and {len(self.distance_data)} distance entries")
             print(f"Final weight statistics:")
-            print(f"  Min weight: {self.order_data['Weight'].min():.2f} kg")
-            print(f"  Max weight: {self.order_data['Weight'].max():.2f} kg")
-            print(f"  Mean weight: {self.order_data['Weight'].mean():.2f} kg")
-            print(f"  Total weight: {self.order_data['Weight'].sum():.2f} kg")
+            print(f"  Min weight: {self.order_data['Weight'].min():.2f} tons")
+            print(f"  Max weight: {self.order_data['Weight'].max():.2f} tons")
+            print(f"  Mean weight: {self.order_data['Weight'].mean():.2f} tons")
+            print(f"  Total weight: {self.order_data['Weight'].sum():.2f} tons")
 
         except FileNotFoundError as e:
             raise FileNotFoundError(f"File not found: {e}")
