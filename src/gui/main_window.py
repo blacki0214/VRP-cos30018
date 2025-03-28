@@ -207,86 +207,88 @@ class MainWindow:
     def start_optimization(self):
         """Start the optimization process"""
         if not self.data_processor:
-            messagebox.showerror("Error", "Please load data first")
+            messagebox.showwarning("Warning", "Please load data first")
             return
-            
-        self.clear_results()
-        self.status_var.set("Optimizing...")
         
-        # Disable start button and enable stop button
-        self.start_button.configure(state=tk.DISABLED)
-        self.stop_button.configure(state=tk.NORMAL)
+        if self.is_running:
+            messagebox.showwarning("Warning", "Optimization is already running")
+            return
         
         # Get selected method
         method = self.method_var.get()
+        if method == 'all':
+            method = None  # None means run all methods
         
         # Get GA parameters
         ga_settings = {}
         for param, var in self.ga_params.items():
             try:
-                value = var.get()
-                if param in ('population_size', 'generations', 'elitism_count'):
-                    ga_settings[param] = int(value)
+                # Convert to appropriate type
+                if param in ['population_size', 'generations', 'elitism_count']:
+                    ga_settings[param] = int(var.get())
                 else:
-                    ga_settings[param] = float(value)
+                    ga_settings[param] = float(var.get())
             except ValueError:
-                messagebox.showerror("Error", f"Invalid value for {param}")
+                messagebox.showerror("Error", f"Invalid value for {param}: {var.get()}")
                 return
-                
-        # Create the solver
+        
+        # Clear results
+        self.clear_results()
+        
+        # Create solver
         self.solver = VRPSolver(self.data_processor)
+        self.solver.set_main_window(self)  # Connect solver to main window
         
-        # Update GA parameters for all optimizers
-        if hasattr(self.solver, 'ga_optimizer'):
-            self.solver.ga_optimizer.population_size = ga_settings['population_size']
-            self.solver.ga_optimizer.max_generations = ga_settings['generations'] 
-            self.solver.ga_optimizer.base_mutation_rate = ga_settings['mutation_rate']
-            self.solver.ga_optimizer.crossover_rate = ga_settings['crossover_rate']
-            self.solver.ga_optimizer.elitism_count = ga_settings['elitism_count']
+        # Update GA parameters for all optimizers that use GA
+        optimizers_with_ga = [
+            self.solver.ga_optimizer,
+            self.solver.ga_or_optimizer,
+            self.solver.ga_or_mod_optimizer
+        ]
         
-        if hasattr(self.solver, 'ga_or_optimizer'):
-            self.solver.ga_or_optimizer.population_size = ga_settings['population_size']
-            self.solver.ga_or_optimizer.max_generations = ga_settings['generations']
-            self.solver.ga_or_optimizer.base_mutation_rate = ga_settings['mutation_rate']
-            self.solver.ga_or_optimizer.crossover_rate = ga_settings['crossover_rate']
-            self.solver.ga_or_optimizer.elitism_count = ga_settings['elitism_count']
-            
-        if hasattr(self.solver, 'ga_or_mod_optimizer'):
-            self.solver.ga_or_mod_optimizer.population_size = ga_settings['population_size']
-            self.solver.ga_or_mod_optimizer.max_generations = ga_settings['generations']
-            self.solver.ga_or_mod_optimizer.base_mutation_rate = ga_settings['mutation_rate']
-            self.solver.ga_or_mod_optimizer.crossover_rate = ga_settings['crossover_rate']
-            self.solver.ga_or_mod_optimizer.elitism_count = ga_settings['elitism_count']
+        for optimizer in optimizers_with_ga:
+            if optimizer:
+                optimizer.population_size = ga_settings['population_size']
+                optimizer.max_generations = ga_settings['generations']
+                optimizer.base_mutation_rate = ga_settings['mutation_rate']
+                optimizer.crossover_rate = ga_settings['crossover_rate']
+                optimizer.elitism_count = ga_settings['elitism_count']
+                
+                # If optimizer has a nested GA optimizer, update that too
+                if hasattr(optimizer, 'ga_optimizer'):
+                    optimizer.ga_optimizer.population_size = ga_settings['population_size']
+                    optimizer.ga_optimizer.max_generations = ga_settings['generations']
+                    optimizer.ga_optimizer.base_mutation_rate = ga_settings['mutation_rate']
+                    optimizer.ga_optimizer.crossover_rate = ga_settings['crossover_rate']
+                    optimizer.ga_optimizer.elitism_count = ga_settings['elitism_count']
         
-        # Set reference to main window for score updates
-        self.solver.set_main_window(self)
-        
-        # Create cities coordinates if not exists
-        if not hasattr(self, 'cities_coordinates'):
-            self.cities_coordinates = self._generate_city_coordinates()
-            
-        # Create visualizer
-        self.visualizer = ModernVisualizer(self.viz_panel, self.cities_coordinates)
-        
-        # Replace viz_panel placeholder with visualization
-        if hasattr(self, 'viz_label'):
-            self.viz_label.destroy()
+        # Update UI state
+        self.is_running = True
+        self.start_button.config(state=tk.DISABLED)
+        self.stop_button.config(state=tk.NORMAL)
+        self.status_var.set("Optimization in progress...")
         
         # Start optimization in a separate thread
         self.optimization_thread = threading.Thread(
             target=self._run_optimization,
-            args=(method,),
-            daemon=True
+            args=(method,)
         )
         self.optimization_thread.start()
         
         # Start monitoring thread
-        self.is_running = True
-        threading.Thread(target=self._monitor_optimization, daemon=True).start()
+        self._monitor_optimization()
     
     def _run_optimization(self, method):
         """Run the optimization process"""
         try:
+            # Generate city coordinates for visualization
+            cities_coordinates = self._generate_city_coordinates()
+            
+            # Create visualizer if not exists
+            if not self.visualizer:
+                # Schedule visualizer creation in main thread
+                self.root.after(0, self._create_visualizer, cities_coordinates)
+            
             # Connect visualizer to all optimizers
             if hasattr(self.solver, 'visualizer'):
                 self.solver.visualizer = self.visualizer
@@ -306,11 +308,8 @@ class MainWindow:
             # Run optimization
             solution = self.solver.optimize(method)
             
-            # Update visualization with solution
+            # Schedule visualization update in main thread
             self.root.after(0, self._update_visualization, solution)
-            
-            # Display solution details
-            self.root.after(0, self._display_solution, solution)
             
         except Exception as e:
             # Schedule error handling in main thread
@@ -320,18 +319,15 @@ class MainWindow:
             # Schedule UI updates in main thread
             self.root.after(0, self._update_ui_after_optimization)
     
+    def _create_visualizer(self, cities_coordinates):
+        """Create visualizer in main thread"""
+        self.visualizer = ModernVisualizer(self.viz_panel, cities_coordinates)
+    
     def _update_visualization(self, solution):
         """Update visualization in main thread"""
-        if self.visualizer:
-            try:
-                # If the solver has its own visualization update method, use that
-                if hasattr(self.solver, '_update_visualization'):
-                    self.solver._update_visualization(solution)
-                else:
-                    # Otherwise use basic visualization
-                    self.visualizer.plot_routes(solution)
-            except Exception as e:
-                print(f"Warning: Failed to update final visualization: {str(e)}")
+        if self.visualizer and solution:
+            self.visualizer.plot_routes(solution)
+            self._display_solution(solution)
     
     def _handle_optimization_error(self, error_msg):
         """Handle optimization error in main thread"""
@@ -346,35 +342,36 @@ class MainWindow:
     
     def _monitor_optimization(self):
         """Monitor optimization progress"""
-        if self.is_running and self.solver and self.visualizer:
+        if self.is_running and self.solver:
             try:
-                # Check if we have method comparison results
-                if hasattr(self.solver, 'results') and self.solver.results:
-                    method_scores = {}
-                    for method_name, result in self.solver.results.items():
-                        if 'scores' in result and result['scores'] and 'composite_score' in result['scores']:
-                            method_scores[method_name] = result['scores']['composite_score']
-                    
-                    # Update method comparison visualization if we have scores
-                    if method_scores and len(method_scores) > 0:
-                        self.visualizer.update_method_comparison(method_scores)
+                # Get current optimizer based on selected method
+                method = self.method_var.get()
+                current_optimizer = None
                 
+                if method == 'ga':
+                    current_optimizer = self.solver.ga_optimizer
+                elif method == 'ga_or':
+                    current_optimizer = self.solver.ga_or_optimizer
+                elif method == 'ga_or_mod':
+                    current_optimizer = self.solver.ga_or_mod_optimizer
+                
+                # Update status if optimizer is available
+                if current_optimizer and hasattr(current_optimizer, 'current_generation'):
+                    generation = current_optimizer.current_generation
+                    self.status_var.set(f"Generation {generation} in progress...")
             except Exception as e:
                 print(f"Warning: Error in monitoring: {str(e)}")
-                import traceback
-                traceback.print_exc()
             
             # Schedule next update
             if self.is_running:
-                self.root.after(500, self._monitor_optimization)
+                self.root.after(100, self._monitor_optimization)
     
     def stop_optimization(self):
         """Stop the optimization process"""
         if self.is_running:
             self.is_running = False
             if self.solver:
-                # Stop all optimizers
-                self.solver.stop()
+                self.solver.ga_optimizer.stop()
             self.start_button.config(state=tk.NORMAL)
             self.stop_button.config(state=tk.DISABLED)
             self.status_var.set("Optimization stopped")
@@ -467,15 +464,9 @@ class MainWindow:
     
     def clear_results(self):
         """Clear previous results"""
-        if hasattr(self, 'visualizer') and self.visualizer:
+        if self.visualizer:
             self.visualizer = None
-        
-        # Recreate viz_label if it doesn't exist
-        if not hasattr(self, 'viz_label') or not self.viz_label:
-            self.viz_label = ttk.Label(self.viz_panel, text="Run optimization to see visualization")
-            self.viz_label.pack(fill=tk.BOTH, expand=True)
-        else:
-            self.viz_label.config(text="Run optimization to see visualization")
+        self.viz_label.config(text="Run optimization to see visualization")
     
     def run(self):
         """Run the application"""
@@ -537,10 +528,9 @@ class MainWindow:
         scores_frame.grid_columnconfigure(1, weight=1)
 
     def update_scores(self, scores):
-        """Update the score display with new values"""
-        for var_name, value in scores.items():
-            if var_name in self.score_vars:
-                self.score_vars[var_name].set(f"{value:.4f}")
+        """Update the score display with new values for all methods"""
+        if self.visualizer:
+            self.visualizer.update_score_plot(scores)
 
     def _setup_styles(self):
         """Setup custom styles for the score display"""

@@ -162,10 +162,10 @@ class GAOptimizer(BaseOptimizer):
             # Update visualization if available
             if self.visualizer:
                 try:
-                    self.visualizer.plot_fitness(
-                        self.current_generation,
-                        self.current_population_fitness,
-                        self.best_fitness
+                    self.visualizer.update_fitness_plot(
+                        generation,
+                        self.best_fitness_history,
+                        self.avg_fitness_history
                     )
                 except Exception as e:
                     print(f"Warning: Failed to update fitness plot: {str(e)}")
@@ -227,10 +227,10 @@ class GAOptimizer(BaseOptimizer):
         # Final visualization update
         if self.visualizer:
             try:
-                self.visualizer.plot_fitness(
+                self.visualizer.update_fitness_plot(
                     generation,
                     self.best_fitness_history,
-                    self.best_fitness
+                    self.avg_fitness_history
                 )
                 self.visualizer.plot_routes(self.best_solution)
             except Exception as e:

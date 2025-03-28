@@ -50,55 +50,72 @@ class VRPSolver:
         self.best_fitness = 0.0
         self.best_method = None
     
-    def optimize(self, method: str = None) -> List[Route]:
+    def optimize(self, method: str = None):
         """
-        Optimize VRP problem using specified method.
+        Execute optimization with specified method or all methods if none specified.
         
         Args:
-            method: Optimization method to use. If None, will run all methods.
-            
-        Returns:
-            Optimized solution (routes)
+            method: Optional method to run ('ga', 'or_ml', 'ga_or', or 'ga_or_mod')
         """
-        self.results = {}
-        
-        # Run specified method(s)
-        if method is None or method == 'all':
-            # Run all methods
-            print("Running all optimization methods for comparison...")
-            self._run_ga()
-            self._run_or_ml()
-            self._run_ga_or()
-            self._run_ga_or_mod()
-            
-            # Return solution from best method
-            best_method = max(self.results, 
-                            key=lambda k: self.results[k]['scores']['composite_score'])
-            return self.results[best_method]['solution']
-            
-        elif method == 'ga':
-            # Genetic Algorithm
-            print("Running GA optimization...")
-            return self._run_ga()
-            
-        elif method == 'or_ml':
-            # OR-Tools with ML
-            print("Running OR-Tools with ML optimization...")
-            return self._run_or_ml()
-            
-        elif method == 'ga_or':
-            # GA + OR-Tools (No Fitness Mod)
-            print("Running GA + OR-Tools (No Fitness Mod) optimization...")
-            return self._run_ga_or()
-            
-        elif method == 'ga_or_mod':
-            # GA + OR-Tools (Modified Fitness)
-            print("Running GA + OR-Tools (Modified Fitness) optimization...")
-            return self._run_ga_or_mod()
-            
+        if method:
+            # Run single method
+            optimizer = self._get_optimizer(method)
+            if optimizer:
+                solution = optimizer.optimize()
+                self._update_results(method, solution, optimizer)
+                
+                # Update main window scores if available
+                if hasattr(self, 'main_window'):
+                    scores = optimizer.calculate_route_comparison_score(solution)
+                    self.main_window.update_scores(scores)
         else:
-            # Unknown method
-            raise ValueError(f"Unknown method: {method}")
+            # Run all methods
+            print("\nRunning all optimization methods...")
+            
+            # Method 1: Pure GA
+            print("\n--- Method 1: Pure GA ---")
+            self.results['ga']['solution'] = self.ga_optimizer.optimize()
+            self.results['ga']['fitness'] = self.ga_optimizer.calculate_fitness(self.results['ga']['solution'])
+            self.results['ga']['metrics'] = self.ga_optimizer.evaluate_solution(self.results['ga']['solution'])
+            self.results['ga']['scores'] = self.ga_optimizer.calculate_route_comparison_score(self.results['ga']['solution'])
+            
+            # Method 2: OR-Tools with ML
+            print("\n--- Method 2: OR-Tools with ML ---")
+            self.results['or_ml']['solution'] = self.or_ml_optimizer.optimize()
+            self.results['or_ml']['fitness'] = self.ga_optimizer.calculate_fitness(self.results['or_ml']['solution'])
+            self.results['or_ml']['metrics'] = self.ga_optimizer.evaluate_solution(self.results['or_ml']['solution'])
+            self.results['or_ml']['scores'] = self.ga_optimizer.calculate_route_comparison_score(self.results['or_ml']['solution'])
+            
+            # Method 3: GA + OR (no fitness modification)
+            print("\n--- Method 3: GA + OR ---")
+            self.results['ga_or']['solution'] = self.ga_or_optimizer.optimize()
+            self.results['ga_or']['fitness'] = self.ga_optimizer.calculate_fitness(self.results['ga_or']['solution'])
+            self.results['ga_or']['metrics'] = self.ga_optimizer.evaluate_solution(self.results['ga_or']['solution'])
+            self.results['ga_or']['scores'] = self.ga_optimizer.calculate_route_comparison_score(self.results['ga_or']['solution'])
+            
+            # Method 4: GA + OR with modified fitness
+            print("\n--- Method 4: GA + OR with modified fitness ---")
+            self.results['ga_or_mod']['solution'] = self.ga_or_mod_optimizer.optimize()
+            self.results['ga_or_mod']['fitness'] = self.ga_optimizer.calculate_fitness(self.results['ga_or_mod']['solution'])
+            self.results['ga_or_mod']['metrics'] = self.ga_optimizer.evaluate_solution(self.results['ga_or_mod']['solution'])
+            self.results['ga_or_mod']['scores'] = self.ga_optimizer.calculate_route_comparison_score(self.results['ga_or_mod']['solution'])
+            
+            # Find best method based on composite score
+            best_method = max(self.results.keys(), 
+                            key=lambda k: self.results[k]['scores']['composite_score'])
+            
+            # Update main window with all method scores if available
+            if hasattr(self, 'main_window'):
+                method_scores = {
+                    self._get_method_display_name(method): result['scores']
+                    for method, result in self.results.items()
+                }
+                self.main_window.update_scores(method_scores)
+            
+            # Print comparison
+            self._print_comparison()
+            
+            return self.results[best_method]['solution']
     
     def _update_results(self, method: str, solution: List[Route], optimizer: BaseOptimizer):
         """
@@ -109,23 +126,10 @@ class VRPSolver:
             solution: Optimized solution
             optimizer: Optimizer used
         """
-        try:
-            metrics = optimizer.evaluate_solution(solution)
-            fitness = optimizer.calculate_fitness(solution)
-            scores = optimizer.calculate_route_comparison_score(solution)
-            self.results[method] = {
-                'solution': solution,
-                'metrics': metrics,
-                'fitness': fitness,
-                'scores': scores
-            }
-            
-            # Update the visualization with method comparison scores if we have multiple methods
-            if len(self.results) > 1 and hasattr(self, 'main_window') and self.main_window and hasattr(self.main_window, 'visualizer'):
-                method_scores = {m: self.results[m]['scores']['composite_score'] for m in self.results}
-                self.main_window.visualizer.update_method_comparison(method_scores)
-        except Exception as e:
-            print(f"Error updating results: {str(e)}")
+        self.results[method]['solution'] = solution
+        self.results[method]['fitness'] = optimizer.calculate_fitness(solution)
+        self.results[method]['metrics'] = optimizer.evaluate_solution(solution)
+        self.results[method]['scores'] = optimizer.calculate_route_comparison_score(solution)
     
     def _get_optimizer(self, method: str) -> BaseOptimizer:
         """
@@ -179,10 +183,6 @@ class VRPSolver:
         # Determine best method based on composite score
         best_method = max(method_scores.items(), key=lambda x: x[1])[0]
         print(f"\nBest method: {self._get_method_display_name(best_method)} with composite score {method_scores[best_method]:.4f}")
-        
-        # Update the visualization with method comparison scores
-        if hasattr(self, 'main_window') and self.main_window and hasattr(self.main_window, 'visualizer'):
-            self.main_window.visualizer.update_method_comparison(method_scores)
     
     def _print_metrics(self, solution: List[Route]):
         """
@@ -274,70 +274,3 @@ class VRPSolver:
     def set_main_window(self, main_window):
         """Set the main window reference for score updates"""
         self.main_window = main_window
-
-    def _run_ga(self) -> List[Route]:
-        """Run Pure GA optimization"""
-        print("\n--- Method: Pure GA ---")
-        solution = self.ga_optimizer.optimize()
-        self._update_results('ga', solution, self.ga_optimizer)
-        
-        # Update main window scores if available
-        if hasattr(self, 'main_window'):
-            scores = self.ga_optimizer.calculate_route_comparison_score(solution)
-            self.main_window.update_scores(scores)
-            
-        return solution
-    
-    def _run_or_ml(self) -> List[Route]:
-        """Run OR-Tools with ML optimization"""
-        print("\n--- Method: OR-Tools with ML ---")
-        solution = self.or_ml_optimizer.optimize()
-        self._update_results('or_ml', solution, self.ga_optimizer)
-        
-        # Update main window scores if available
-        if hasattr(self, 'main_window'):
-            scores = self.ga_optimizer.calculate_route_comparison_score(solution)
-            self.main_window.update_scores(scores)
-            
-        return solution
-    
-    def _run_ga_or(self) -> List[Route]:
-        """Run GA + OR (no fitness modification) optimization"""
-        print("\n--- Method: GA + OR (no fitness modification) ---")
-        solution = self.ga_or_optimizer.optimize()
-        self._update_results('ga_or', solution, self.ga_optimizer)
-        
-        # Update main window scores if available
-        if hasattr(self, 'main_window'):
-            scores = self.ga_optimizer.calculate_route_comparison_score(solution)
-            self.main_window.update_scores(scores)
-            
-        return solution
-    
-    def _run_ga_or_mod(self) -> List[Route]:
-        """Run GA + OR with modified fitness optimization"""
-        print("\n--- Method: GA + OR with modified fitness ---")
-        solution = self.ga_or_mod_optimizer.optimize()
-        self._update_results('ga_or_mod', solution, self.ga_optimizer)
-        
-        # Update main window scores if available
-        if hasattr(self, 'main_window'):
-            scores = self.ga_optimizer.calculate_route_comparison_score(solution)
-            self.main_window.update_scores(scores)
-            
-        return solution
-
-    def _update_visualization(self, solution: List[Route]):
-        """Update visualization with final solution"""
-        if self.main_window.visualizer:
-            # Plot final routes
-            self.main_window.visualizer.plot_routes(solution)
-            
-            # Update method comparison if we have method scores
-            if hasattr(self, 'results') and self.results:
-                method_scores = {m: result['scores']['composite_score'] 
-                                for m, result in self.results.items() 
-                                if 'scores' in result and 'composite_score' in result['scores']}
-                
-                if method_scores:
-                    self.main_window.visualizer.update_method_comparison(method_scores)

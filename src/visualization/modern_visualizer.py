@@ -29,12 +29,6 @@ class ModernVisualizer:
         # Initialize update queue for thread-safe operations
         self.update_queue = queue.Queue()
         
-        # Initialize fitness plotter
-        self.fitness_plotter = FitnessPlotter()
-        
-        # Initialize map viewer
-        self.map_viewer = None
-        
         # Clear any existing widgets
         for widget in self.parent.winfo_children():
             widget.destroy()
@@ -64,32 +58,40 @@ class ModernVisualizer:
         self.right_panel = ttk.Frame(self.main_frame)
         self.right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        # Create frames for route and method comparison visualization
+        # Create frames for route visualization
         self.route_frame = ttk.LabelFrame(self.right_panel, text="Route Visualization")
         self.route_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        # Create Method Comparison frame using a different approach
-        self.method_comparison_frame = ttk.LabelFrame(self.right_panel, text="Method Comparison Scores")
-        self.method_comparison_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5, ipady=10)
+        # Create score comparison section
+        self.score_frame = ttk.LabelFrame(self.right_panel, text="Method Comparison Scores")
+        self.score_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        # Create a simple tabular display for method scores instead of a graph
-        self.score_frame = ttk.Frame(self.method_comparison_frame)
-        self.score_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        # Create table for method scores
+        columns = ("method", "composite", "distance", "cost", "capacity", "parcel", "route")
+        self.score_table = ttk.Treeview(self.score_frame, columns=columns, show="headings", height=4)
         
-        # Initialize the score labels
-        self.score_labels = {}
-        self.score_values = {}
+        # Configure columns
+        self.score_table.heading("method", text="Method")
+        self.score_table.heading("composite", text="Composite")
+        self.score_table.heading("distance", text="Distance")
+        self.score_table.heading("cost", text="Cost")
+        self.score_table.heading("capacity", text="Capacity")
+        self.score_table.heading("parcel", text="Parcel")
+        self.score_table.heading("route", text="Route")
         
-        # Make this frame accessible as main_container for backward compatibility
-        self.main_container = self.main_frame
+        # Set column widths
+        self.score_table.column("method", width=150, anchor="w")
+        self.score_table.column("composite", width=100, anchor="center")
+        self.score_table.column("distance", width=100, anchor="center")
+        self.score_table.column("cost", width=100, anchor="center")
+        self.score_table.column("capacity", width=100, anchor="center")
+        self.score_table.column("parcel", width=100, anchor="center")
+        self.score_table.column("route", width=100, anchor="center")
+        
+        self.score_table.pack(fill=tk.X, padx=5, pady=5)
         
         # Create figures and canvases in the main thread
         self.parent.after(0, self._create_figures)
-        
-        # Initialize data for fitness tracking
-        self.generations = []
-        self.best_fitness = []
-        self.avg_fitness = []
         
         # Store routes for later reference
         self.routes = []
@@ -111,7 +113,7 @@ class ModernVisualizer:
         self.route_canvas.draw()
         self.route_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         
-        # Add navigation toolbar for route visualization
+        # Add navigation toolbar
         self.route_toolbar = NavigationToolbar2Tk(self.route_canvas, self.route_frame)
         self.route_toolbar.update()
         
@@ -127,6 +129,8 @@ class ModernVisualizer:
                 # Clean up resources in the main thread
                 if hasattr(self, 'route_canvas'):
                     self.route_canvas.get_tk_widget().destroy()
+                if hasattr(self, 'fitness_canvas'):
+                    self.fitness_canvas.get_tk_widget().destroy()
                 plt.close('all')
             
             # Schedule cleanup in main thread
@@ -241,9 +245,9 @@ class ModernVisualizer:
         self.route_viz_frame = ttk.LabelFrame(panel, text="Route Visualization", padding="10")
         self.route_viz_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
         
-        # Method Comparison plot instead of Fitness Evolution
-        self.method_comparison_frame = ttk.LabelFrame(panel, text="Method Comparison Scores", padding="10")
-        self.method_comparison_frame.pack(fill=tk.BOTH, expand=True)
+        # Fitness plot
+        self.fitness_frame = ttk.LabelFrame(panel, text="Fitness Evolution", padding="10")
+        self.fitness_frame.pack(fill=tk.BOTH, expand=True)
         
         return panel
         
@@ -339,91 +343,53 @@ class ModernVisualizer:
         return lat, lon
         
     def plot_fitness(self, generation: int, fitness_scores: List[float], best_fitness: float):
-        """Update method comparison chart instead of fitness evolution"""
-        # This method is kept for compatibility but now updates the comparison chart
-        pass
-
-    def update_method_comparison(self, method_scores: Dict[str, float]):
-        """Display method comparison scores in a tabular format
-        
-        Args:
-            method_scores: Dictionary mapping method names to their composite scores
-        """
+        """Plot fitness evolution with modern styling"""
         if self._is_destroyed:
             return
-            
         def _update():
             if self._is_destroyed:
                 return
+            self.fitness_plotter.add_generation_data(generation, fitness_scores, best_fitness)
             
-            # Clear existing score widgets
-            for widget in self.score_frame.winfo_children():
-                widget.destroy()
+            self.fitness_ax.clear()
             
-            # Create header row
-            ttk.Label(self.score_frame, text="Method", font=("Arial", 10, "bold")).grid(row=0, column=0, padx=10, pady=5, sticky="w")
-            ttk.Label(self.score_frame, text="Composite Score", font=("Arial", 10, "bold")).grid(row=0, column=1, padx=10, pady=5, sticky="e")
+            # Plot with modern styling and real-time updates
+            self.fitness_ax.plot(self.fitness_plotter.generation_numbers, 
+                               self.fitness_plotter.avg_fitness_history,
+                               label='Average Fitness', color='#2ecc71', alpha=0.6)
             
-            # Add separator
-            separator = ttk.Separator(self.score_frame, orient="horizontal")
-            separator.grid(row=1, column=0, columnspan=2, sticky="ew", pady=5)
+            self.fitness_ax.plot(self.fitness_plotter.generation_numbers,
+                               self.fitness_plotter.best_fitness_history,
+                               label='Best Fitness', color='#e74c3c', linewidth=2)
             
-            # Sort methods by score (descending)
-            sorted_methods = sorted(method_scores.items(), key=lambda x: x[1], reverse=True)
+            # Add current generation marker
+            if len(self.fitness_plotter.generation_numbers) > 0:
+                self.fitness_ax.scatter(generation, best_fitness, 
+                                      color='#e74c3c', s=100, zorder=5)
+                self.fitness_ax.text(generation, best_fitness, f'Gen {generation}',
+                                   xytext=(10, 10), textcoords='offset points')
             
-            # Populate the table with scores
-            for i, (method, score) in enumerate(sorted_methods):
-                display_name = self._get_method_display_name(method)
-                
-                # Method name (with best method highlighted)
-                is_best = i == 0  # First method is the best after sorting
-                label_font = ("Arial", 9, "bold") if is_best else ("Arial", 9)
-                bg_color = "#e6f7e6" if is_best else "#f0f0f0"  # Light green for best method
-                
-                method_frame = ttk.Frame(self.score_frame)
-                method_frame.grid(row=i+2, column=0, sticky="ew", padx=5, pady=3)
-                
-                method_label = tk.Label(method_frame, text=display_name, font=label_font, 
-                                      background=bg_color, anchor="w", padx=5)
-                method_label.pack(fill="x", expand=True)
-                
-                # Score value
-                score_frame = ttk.Frame(self.score_frame)
-                score_frame.grid(row=i+2, column=1, sticky="e", padx=5, pady=3)
-                
-                score_text = f"{score:.4f}"
-                score_label = tk.Label(score_frame, text=score_text, font=label_font,
-                                     background=bg_color, anchor="e", padx=5)
-                score_label.pack(fill="x", expand=True)
-                
-                # Add crown emoji for best method
-                if is_best:
-                    crown = tk.Label(method_frame, text="👑", background=bg_color)
-                    crown.pack(side="left", padx=(0, 5))
+            # Set axis properties
+            self.fitness_ax.set_title('Fitness Evolution (Real-time)', pad=20, fontsize=14)
+            self.fitness_ax.set_xlabel('Generation', fontsize=12)
+            self.fitness_ax.set_ylabel('Fitness Score', fontsize=12)
+            self.fitness_ax.legend(fontsize=10)
+            self.fitness_ax.grid(True, linestyle='--', alpha=0.3)
             
-            # Configure grid weights
-            self.score_frame.columnconfigure(0, weight=2)
-            self.score_frame.columnconfigure(1, weight=1)
+            # Set y-axis limits with some padding
+            if self.fitness_plotter.best_fitness_history:
+                y_min = min(min(self.fitness_plotter.avg_fitness_history), 
+                           min(self.fitness_plotter.best_fitness_history))
+                y_max = max(max(self.fitness_plotter.avg_fitness_history),
+                           max(self.fitness_plotter.best_fitness_history))
+                padding = (y_max - y_min) * 0.1  # 10% padding
+                self.fitness_ax.set_ylim(y_min - padding, y_max + padding)
+            
+            # Update canvas with proper layout
+            self.fitness_fig.tight_layout()
+            self.fitness_canvas.draw()
             
         self._thread_safe_update(_update)
-        
-    def _get_method_display_name(self, method: str) -> str:
-        """Get display name for optimization method
-        
-        Args:
-            method: Method key
-            
-        Returns:
-            Display name for the method
-        """
-        display_names = {
-            'ga': 'Pure GA',
-            'or_ml': 'OR-Tools + ML',
-            'ga_or': 'GA + OR (no mod)',
-            'ga_or_mod': 'GA + OR (mod fitness)',
-            'all': 'All Methods'
-        }
-        return display_names.get(method, method)
         
     def clear_routes(self):
         """Clear existing routes from the plot"""
@@ -716,52 +682,111 @@ class ModernVisualizer:
             
         self._thread_safe_update(_update)
         
-    def update_score_plot(self, score_history):
-        """Update the score plot with new data"""
-        def _update():
-            if self._is_destroyed:
-                return
-                
-            try:
+    def update_fitness_plot(self, generation: int, best_fitness_history: List[float], avg_fitness_history: List[float]):
+        """Update the evolution plot with route quality metrics"""
+        try:
+            def _update():
+                if self._is_destroyed:
+                    return
+                    
                 # Clear previous plot
                 self.fitness_ax.clear()
                 
-                # Extract data from score history
-                generations = list(range(len(score_history)))
-                scores = [score['composite_score'] for score in score_history]
+                # Create generation points
+                generations = list(range(len(best_fitness_history)))
                 
-                # Plot the scores
-                self.fitness_ax.plot(generations, scores, 'b-', label='Composite Score')
+                # Plot best route quality
+                self.fitness_ax.plot(generations, best_fitness_history, 'r-', 
+                                   label='Best Route Quality', linewidth=2)
                 
-                # Add individual component scores if available
-                if score_history and 'distance_score' in score_history[0]:
-                    distance_scores = [score['distance_score'] for score in score_history]
-                    self.fitness_ax.plot(generations, distance_scores, 'g--', label='Distance', alpha=0.5)
+                # Plot average route quality
+                self.fitness_ax.plot(generations, avg_fitness_history, 'g--', 
+                                   label='Average Route Quality', alpha=0.7)
+                
+                # Add markers for latest points
+                if generations:
+                    self.fitness_ax.plot(generations[-1], best_fitness_history[-1], 'ro', 
+                                       markersize=8, label='Latest Best')
+                    self.fitness_ax.plot(generations[-1], avg_fitness_history[-1], 'go', 
+                                       markersize=8, label='Latest Avg')
+                
+                # Customize plot
+                self.fitness_ax.set_title('Route Quality Evolution', pad=10, fontsize=12)
+                self.fitness_ax.set_xlabel('Generation', fontsize=10)
+                self.fitness_ax.set_ylabel('Route Quality Score', fontsize=10)
+                self.fitness_ax.grid(True, linestyle='--', alpha=0.3)
+                
+                # Set y-axis limits with padding
+                if best_fitness_history:
+                    ymin = min(min(best_fitness_history), min(avg_fitness_history))
+                    ymax = max(max(best_fitness_history), max(avg_fitness_history))
+                    padding = (ymax - ymin) * 0.1
+                    self.fitness_ax.set_ylim(ymin - padding, ymax + padding)
+                
+                # Add legend
+                self.fitness_ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+                
+                # Add text box with current metrics
+                if best_fitness_history:
+                    current_best = best_fitness_history[-1]
+                    current_avg = avg_fitness_history[-1]
+                    improvement = ((current_best - current_avg) / current_avg * 100) if current_avg > 0 else 0
                     
-                if score_history and 'cost_efficiency_score' in score_history[0]:
-                    cost_scores = [score['cost_efficiency_score'] for score in score_history]
-                    self.fitness_ax.plot(generations, cost_scores, 'r--', label='Cost Efficiency', alpha=0.5)
+                    metrics_text = f"Current Metrics:\n"
+                    metrics_text += f"Best Quality: {current_best:.4f}\n"
+                    metrics_text += f"Avg Quality: {current_avg:.4f}\n"
+                    metrics_text += f"Improvement: {improvement:.1f}%"
                     
-                if score_history and 'capacity_utilization_score' in score_history[0]:
-                    capacity_scores = [score['capacity_utilization_score'] for score in score_history]
-                    self.fitness_ax.plot(generations, capacity_scores, 'y--', label='Capacity', alpha=0.5)
+                    self.fitness_ax.text(0.02, 0.98, metrics_text,
+                                       transform=self.fitness_ax.transAxes,
+                                       bbox=dict(facecolor='white', alpha=0.8, edgecolor='gray'),
+                                       verticalalignment='top',
+                                       fontsize=9)
                 
-                # Set labels and title
-                self.fitness_ax.set_xlabel('Generation')
-                self.fitness_ax.set_ylabel('Score')
-                self.fitness_ax.set_title('Score Evolution')
-                self.fitness_ax.grid(True)
-                self.fitness_ax.legend()
+                # Adjust layout
+                self.fitness_fig.tight_layout()
                 
-                # Update the canvas
+                # Update canvas
                 self.fitness_canvas.draw()
+                self.fitness_canvas.get_tk_widget().update()
+            
+            # Execute update in main thread
+            if threading.current_thread() is threading.main_thread():
+                _update()
+            else:
+                self.parent.after(0, _update)
                 
-            except Exception as e:
-                print(f"Error updating score plot: {str(e)}")
-                
-        self._thread_safe_update(_update)
+        except Exception as e:
+            print(f"Error updating evolution plot: {str(e)}")
+            import traceback
+            traceback.print_exc()
         
-    def close(self):
-        """Close the visualizer"""
+    def update_score_plot(self, score_history):
+        """Update the score table with new data"""
+        try:
+            # Clear existing items
+            for item in self.score_table.get_children():
+                self.score_table.delete(item)
+            
+            # Add scores for each method
+            for method_name, scores in score_history.items():
+                self.score_table.insert("", "end", values=(
+                    method_name,
+                    f"{scores['composite_score']:.4f}",
+                    f"{scores['distance_score']:.4f}",
+                    f"{scores['cost_efficiency_score']:.4f}",
+                    f"{scores['capacity_utilization_score']:.4f}",
+                    f"{scores['parcel_efficiency_score']:.4f}",
+                    f"{scores['route_structure_score']:.4f}"
+                ))
+                
+        except Exception as e:
+            print(f"Error updating score table: {str(e)}")
+            import traceback
+            traceback.print_exc()
+        
+    def destroy(self):
+        """Clean up resources"""
         self._is_destroyed = True
-        plt.close(self.route_fig) 
+        plt.close(self.route_fig)
+        plt.close(self.fitness_fig) 
